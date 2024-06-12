@@ -38,9 +38,9 @@ type Config struct {
 	} `yaml:"microsoft"`
 
 	Gong struct {
-		AccessKey    string `yaml:"access_key" env:"GONG_ACCESS_KEY"`
-		AccessSecret string `yaml:"access_secret" env:"GONG_ACCESS_SECRET"`
-		LookupHours  int    `yaml:"lookup_hours" env:"GONG_LOOKUP_HOURS"`
+		AccessKey    string `yaml:"access_key" env:"GONG_ACCESS_KEY" valid:"minstringlength(3)"`
+		AccessSecret string `yaml:"access_secret" env:"GONG_ACCESS_SECRET" valid:"minstringlength(3)"`
+		LookupHours  int64  `yaml:"lookup_hours" env:"GONG_LOOKUP_HOURS" valid:"numeric"`
 	} `yaml:"gong"`
 }
 
@@ -55,6 +55,10 @@ func (c *Config) Validate() error {
 
 	if valid, err := validator.ValidateStruct(c); !valid || err != nil {
 		return fmt.Errorf("invalid configuration: %v", err)
+	}
+
+	if c.Gong.LookupHours <= 0 {
+		return fmt.Errorf("invalid lookup hours, should be positive number: %d", c.Gong.LookupHours)
 	}
 
 	return nil

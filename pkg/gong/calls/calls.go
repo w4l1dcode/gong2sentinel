@@ -4,14 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
+)
+
+const (
+	callsURL = "https://api.gong.io/v2/calls"
 )
 
 // GetCallIDs function to make a GET request and retrieve call IDs
 func GetCallIDs(accessKey string, secretKey string) ([]string, error) {
-	url := "https://api.gong.io/v2/calls"
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: time.Second * 20,
+	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, callsURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
 	}

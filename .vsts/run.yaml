@@ -14,29 +14,28 @@ schedules:
     always: true
 
 stages:
+-
+  stage: run
+  displayName: Ingest gong logs to Sentinel
+  condition: ne(variables['Build.Reason'], 'PullRequest')
+  pool:
+    vmImage: ubuntu-latest
+  jobs:
   -
-    stage: run
-    displayName: Ingest gong logs to Sentinel
-    condition: ne(variables['Build.Reason'], 'PullRequest')
-    pool:
-      vmImage: ubuntu-latest
-    jobs:
-      -
-        job: gongtosen_run
-        steps:
-          -
-            task: GoTool@0
-            inputs:
-              version: '1.22.1'
-            displayName: "Install Go"
-          -
-            task: DownloadSecureFile@1
-            name: config
-            inputs:
-              secureFile: gong2sentinel_config.yml
-            displayName: "Download config file"
-
-          -
-            script: |
-              go run ./cmd/... -config=$(config.secureFilePath)
-            displayName: 'Run gong ingestor'
+    job: gongtosen_run
+    steps:
+    -
+      task: GoTool@0
+      inputs:
+        version: '1.22.1'
+      displayName: "Install Go"
+    -
+      task: DownloadSecureFile@1
+      name: config
+      inputs:
+        secureFile: gong2sentinel_config.yml
+      displayName: "Download config file"
+    -
+      script: |
+        go run ./cmd/... -config=$(config.secureFilePath)
+      displayName: 'Run gong ingestor'

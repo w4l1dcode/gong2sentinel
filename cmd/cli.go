@@ -11,7 +11,6 @@ import (
 	"gong2sentinel/pkg/gong/calls"
 	msSentinel "gong2sentinel/pkg/sentinel"
 	_ "io/ioutil"
-	"log"
 	_ "net/http"
 	"sync"
 )
@@ -22,7 +21,7 @@ func main() {
 	logger := logrus.New()
 	logger.SetLevel(logrus.InfoLevel)
 
-	confFile := flag.String("config", "gong2sentinel_config.yml", "The YAML configuration file.")
+	confFile := flag.String("config", "config.yml", "The YAML configuration file.")
 	flag.Parse()
 
 	conf := config.Config{}
@@ -44,13 +43,13 @@ func main() {
 
 	// ---
 
-	errors := make(chan error)
-	wg := &sync.WaitGroup{}
+	collectErrors := make(chan error)
+	collectWG := &sync.WaitGroup{}
 
 	var allGongAuditLogs []map[string]string
 	var allGongUserAccessLogs []map[string]string
 
-	wg.Add(1)
+	collectWG.Add(1)
 	go func() {
 		logger.Info("retrieving gong audit logs")
 
@@ -58,43 +57,43 @@ func main() {
 		allGongAuditLogs, audErr = auditing.GetAuditLogs(conf.Gong.AccessKey, conf.Gong.AccessSecret, conf.Gong.LookupHours)
 		if audErr != nil {
 			//log.Fatalf("failed to retrieve Gong Audit Logs: %v", audErr)
-			errors <- fmt.Errorf("failed to retrieve Gong Audit Logs: %v", audErr)
+			collectErrors <- fmt.Errorf("failed to retrieve Gong Audit Logs: %v", audErr)
 		}
-		wg.Done()
+		collectWG.Done()
 	}()
 
-	wg.Add(1)
+	collectWG.Add(1)
 	go func() {
 		logger.Info("retrieving gong user access logs")
+
+		defer collectWG.Done()
 
 		// Get call IDs
 		callIds, err := calls.GetCallIDs(conf.Gong.AccessKey, conf.Gong.AccessSecret)
 		if err != nil {
-			log.Fatalf("failed to retrieve call IDs: %v", err)
+			collectErrors <- fmt.Errorf("failed to retrieve call IDs: %v", err)
+			return
 		}
 
-		// Get user access logs
 		allGongUserAccessLogs, err = calls.GetUserAccess(conf.Gong.AccessKey, conf.Gong.AccessSecret, callIds)
 		if err != nil {
-			log.Fatalf("failed to retrieve Gong User Access Logs: %v", err)
+			collectErrors <- fmt.Errorf("failed to retrieve Gong User Access Logs: %v", err)
 		}
-
-		wg.Done()
 	}()
 
 	// ---
 
-	doneChan := make(chan struct{})
+	collectDone := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(doneChan)
+		collectWG.Wait()
+		close(collectDone)
 	}()
 
 	logger.Info("waiting for log retrieval to finish")
 	select {
-	case err := <-errors:
+	case err := <-collectErrors:
 		logger.WithError(err).Fatal("failed to retrieve logs")
-	case <-doneChan:
+	case <-collectDone:
 		logger.Info("finished retrieving logs")
 	}
 
@@ -111,12 +110,11 @@ func main() {
 	}
 
 	// ---
-	errors2 := make(chan error)
-	wg2 := &sync.WaitGroup{}
+	ingestErrors := make(chan error)
+	ingestWG := &sync.WaitGroup{}
 
-	wg2.Add(1)
+	ingestWG.Add(1)
 	go func() {
-
 		logger.WithField("total", len(allGongAuditLogs)).Info("shipping off Gong audit logs to Sentinel")
 
 		if err := sentinel.SendLogs(ctx, logger,
@@ -124,16 +122,16 @@ func main() {
 			conf.Microsoft.DataCollection.RuleID,
 			conf.Microsoft.DataCollection.StreamNameAuditing,
 			allGongAuditLogs); err != nil {
-			errors2 <- fmt.Errorf("could not ship audit logs to sentinel: %v", err)
+			ingestErrors <- fmt.Errorf("could not ship audit logs to sentinel: %v", err)
 		}
 
 		logger.WithField("total", len(allGongAuditLogs)).Info("successfully sent Gong Auditing logs to sentinel")
-		wg2.Done()
+		ingestWG.Done()
 	}()
 
 	// ---
 
-	wg2.Add(1)
+	ingestWG.Add(1)
 	go func() {
 		logger.WithField("total", len(allGongUserAccessLogs)).Info("shipping off Gong user access logs to Sentinel")
 
@@ -142,26 +140,25 @@ func main() {
 			conf.Microsoft.DataCollection.RuleID,
 			conf.Microsoft.DataCollection.StreamNameCallUserAccess,
 			allGongUserAccessLogs); err != nil {
-			errors2 <- fmt.Errorf("could not ship access logs to sentinel: %v", err)
+			ingestErrors <- fmt.Errorf("could not ship access logs to sentinel: %v", err)
 
 		}
 
 		logger.WithField("total", len(allGongUserAccessLogs)).Info("successfully sent Gong User Access logs to sentinel")
-		wg2.Done()
+		ingestWG.Done()
 	}()
 
-	doneChan2 := make(chan struct{})
+	ingestDone := make(chan struct{})
 	go func() {
-		wg2.Wait()
-		close(doneChan2)
+		ingestWG.Wait()
+		close(ingestDone)
 	}()
 
 	logger.Info("waiting for log ingestion to finish")
 	select {
-	case err := <-errors2:
+	case err := <-ingestErrors:
 		logger.WithError(err).Fatal("failed to ingest logs")
-	case <-doneChan2:
+	case <-ingestDone:
 		logger.Info("finished ingesting logs")
 	}
-
 }

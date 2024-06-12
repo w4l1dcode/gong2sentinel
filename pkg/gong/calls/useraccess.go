@@ -11,6 +11,7 @@ import (
 
 const (
 	iso8601Format = "2006-01-02T15:04:05Z"
+	userAccessURL = "https://api.gong.io/v2/calls/users-access"
 )
 
 // PostRequestBody Define the struct for the POST request body
@@ -29,8 +30,9 @@ type ResponseBody struct {
 // GetUserAccess Function to make a POST request with filtered call IDs
 func GetUserAccess(accessKey string, secretKey string, callIds []string) ([]map[string]string, error) {
 	now := time.Now().UTC().Format(iso8601Format)
-	url := "https://api.gong.io/v2/calls/users-access"
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: time.Second * 20,
+	}
 
 	// Create the POST request body with the filtered call IDs
 	postRequestBody := &PostRequestBody{
@@ -45,7 +47,7 @@ func GetUserAccess(accessKey string, secretKey string, callIds []string) ([]map[
 		return nil, fmt.Errorf("failed to marshal request body to JSON: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(http.MethodPost, userAccessURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
 	}
@@ -78,6 +80,7 @@ func GetUserAccess(accessKey string, secretKey string, callIds []string) ([]map[
 
 	// Convert CallAccessList to the desired format
 	callAccessList := make([]map[string]string, len(responseBody.CallAccessList))
+
 	for i, item := range responseBody.CallAccessList {
 		callAccessList[i] = map[string]string{
 			"TimeGenerated":  now,
@@ -85,5 +88,6 @@ func GetUserAccess(accessKey string, secretKey string, callIds []string) ([]map[
 			"callAccessList": item["callAccessList"],
 		}
 	}
+
 	return callAccessList, nil
 }
