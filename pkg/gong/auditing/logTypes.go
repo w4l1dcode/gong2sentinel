@@ -1,7 +1,7 @@
 package auditing
 
-// Map log types to their corresponding structs
-var logTypeStructMap = map[string]interface{}{
+// LogTypeStructMap maps log types to their corresponding structs
+var LogTypeStructMap = map[string]interface{}{
 	"AccessLog":                  AccessLog{},
 	"UserActivityLog":            UserActivityLog{},
 	"UserCallPlay":               UserCallPlay{},

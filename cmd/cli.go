@@ -4,14 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	_ "fmt"
 	"github.com/sirupsen/logrus"
 	"gong2sentinel/config"
 	"gong2sentinel/pkg/gong/auditing"
 	"gong2sentinel/pkg/gong/calls"
 	msSentinel "gong2sentinel/pkg/sentinel"
-	_ "io/ioutil"
-	_ "net/http"
 	"sync"
 )
 
@@ -41,8 +38,6 @@ func main() {
 	logger.WithField("level", logrusLevel.String()).Info("set log level")
 	logger.SetLevel(logrusLevel)
 
-	// ---
-
 	collectErrors := make(chan error)
 	collectWG := &sync.WaitGroup{}
 
@@ -53,13 +48,16 @@ func main() {
 	go func() {
 		logger.Info("retrieving gong audit logs")
 
-		var audErr error
-		allGongAuditLogs, audErr = auditing.GetAuditLogs(conf.Gong.AccessKey, conf.Gong.AccessSecret, conf.Gong.LookupHours)
-		if audErr != nil {
-			//log.Fatalf("failed to retrieve Gong Audit Logs: %v", audErr)
-			collectErrors <- fmt.Errorf("failed to retrieve Gong Audit Logs: %v", audErr)
+		defer collectWG.Done()
+
+		for logType := range auditing.LogTypeStructMap {
+			auditLogs, audErr := auditing.GetAuditLogsForType(conf.Gong.AccessKey, conf.Gong.AccessSecret, logType, conf.Gong.LookupHours)
+			if audErr != nil {
+				collectErrors <- fmt.Errorf("failed to retrieve Gong Audit Logs for logType %s: %v", logType, audErr)
+				return
+			}
+			allGongAuditLogs = append(allGongAuditLogs, auditLogs...)
 		}
-		collectWG.Done()
 	}()
 
 	collectWG.Add(1)
@@ -81,8 +79,6 @@ func main() {
 		}
 	}()
 
-	// ---
-
 	collectDone := make(chan struct{})
 	go func() {
 		collectWG.Wait()
@@ -97,8 +93,6 @@ func main() {
 		logger.Info("finished retrieving logs")
 	}
 
-	// ---
-
 	sentinel, err := msSentinel.New(logger, msSentinel.Credentials{
 		TenantID:       conf.Microsoft.TenantID,
 		ClientID:       conf.Microsoft.AppID,
@@ -109,7 +103,6 @@ func main() {
 		logger.WithError(err).Fatal("could not create MS Sentinel client")
 	}
 
-	// ---
 	ingestErrors := make(chan error)
 	ingestWG := &sync.WaitGroup{}
 
@@ -128,8 +121,6 @@ func main() {
 		logger.WithField("total", len(allGongAuditLogs)).Info("successfully sent Gong Auditing logs to sentinel")
 		ingestWG.Done()
 	}()
-
-	// ---
 
 	ingestWG.Add(1)
 	go func() {
